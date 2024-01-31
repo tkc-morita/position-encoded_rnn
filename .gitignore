@@ -1,0 +1,11 @@
+**/__pycache__
+**/.DS_Store
+.DS_Store
+results
+manuscript
+sinusoidal.gcx
+code/misc
+code/model/gradient_analysis.py
+code/analyze-gradient_palindrome.py
+code/train_palindrome_vocab-extension.py
+code/train_sort_transitivity.py
