@@ -20,3 +20,5 @@ The conda environment used in the study can be recovered from [conda_env.yml](co
   - [code/test_sort_pairwise-order.py](code/test_sort_pairwise-order.py): Evaluate the sorting of outputs of a trained RNN ignoring their accuracy against the ground-truth target sequence.
 - Copying Memory Task:
   - [code/train_copy-memory.py](code/train_copy-memory.py): Train & test an RNN on the copying-memory task.
+
+The study used the following random seeds: 111, 222, 333, 444, and 555.
