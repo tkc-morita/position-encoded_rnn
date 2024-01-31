@@ -22,3 +22,4 @@ The conda environment used in the study can be recovered from [conda_env.yml](co
   - [code/train_copy-memory.py](code/train_copy-memory.py): Train & test an RNN on the copying-memory task.
 
 The study used the following random seeds: 111, 222, 333, 444, and 555.
+Refer to Appendix A of the paper for information about the other hyperparameters.
