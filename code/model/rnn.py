@@ -3,11 +3,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .time_encoding import PositionEncoder
+from .time_encoding import SinusoidalPositionEncoder,LearnablePositionEncoder,RandomPositionalEncoder
 
 class RNN(nn.Module):
 	def __init__(self, vocab_size, hidden_size, rnn_name,
 					embed_size=None, time_encoding=None,
+					time_encoding_form='sinusoidal', max_length=None,
 					learnable_padding_token=False, **rnn_kwargs):
 		super().__init__()
 		if embed_size is None:
@@ -18,7 +19,16 @@ class RNN(nn.Module):
 		self.time_encoding = time_encoding
 		if not time_encoding is None:
 			assert time_encoding in ['add', 'concat'], 'time_encoding must be either "add" or "concat"'
-			self.time_encoder = PositionEncoder(embed_size)
+			if time_encoding_form=='sinusoidal':
+				self.time_encoder = SinusoidalPositionEncoder(embed_size)
+			else:
+				assert not max_length is None, 'max_length must be specified.'
+				if time_encoding_form=='learnable':
+					self.time_encoder = LearnablePositionEncoder(embed_size, max_length)
+				elif time_encoding_form=='random':
+					self.time_encoder = RandomPositionalEncoder(embed_size, max_length)
+				else:
+					raise ValueError('time_encoding_form must be "sinusoidal", "learnable", or "random".')
 		self.rnn = getattr(nn, rnn_name)(embed_size*2 if time_encoding=='concat' else embed_size,
 										hidden_size, batch_first=True, bidirectional=False,
 										**rnn_kwargs)

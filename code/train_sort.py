@@ -98,6 +98,7 @@ if __name__=='__main__':
 	parser.add_argument('--hidden_size', type=int, default=512, help='Dimensionality of hidden layer(s) in RNN.')
 	parser.add_argument('--embed_size', type=int, default=None, help='Dimensionality of input (& time) embeddings. Equals to hidden_size if not specified.')
 	parser.add_argument('--time_encoding', type=str, default=None, choices=['add','concat'], help='Specifies whether time encoding is added to or concatenated with the input embeddings. Time encoding is not used if this option is left unspecified.')
+	parser.add_argument('--time_encoding_form', type=str, default='sinusoidal', choices=['sinusoidal','learnable','random'], help='Implementation of time encoding.')
 	parser.add_argument('--num_layers', type=int, default=1, help='# of layers in RNN.')
 	parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate in RNN.')
 	parser.add_argument('--learnable_padding_token', action='store_true', help='Use a learnable embedding for the dummy token in the output phase. Otherwise, the dummy token is represented by the zero vector.')
@@ -131,6 +132,8 @@ if __name__=='__main__':
 									rnn_name=args.rnn_name,
 									embed_size=args.embed_size,
 									time_encoding=args.time_encoding,
+									time_encoding_form=args.time_encoding_form,
+									max_length=args.seq_length*2,
 									num_layers=args.num_layers,
 									dropout=args.dropout,
 									learnable_padding_token=args.learnable_padding_token,
