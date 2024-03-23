@@ -103,6 +103,7 @@ class WeightSharedVocabulary(nn.Module):
 class RNN_w_ContinuousInput(RNN):
 	def __init__(self, input_size, hidden_size, rnn_name,
 					embed_size=None, time_encoding=None,
+					time_encoding_form='sinusoidal', max_length=None,
 					**rnn_kwargs):
 		nn.Module.__init__(self)
 		if embed_size is None:
@@ -111,7 +112,12 @@ class RNN_w_ContinuousInput(RNN):
 		self.time_encoding = time_encoding
 		if not time_encoding is None:
 			assert time_encoding in ['add', 'concat'], 'time_encoding must be either "add" or "concat"'
-			self.time_encoder = PositionEncoder(embed_size)
+			if time_encoding_form=='learnable':
+				self.time_encoder = LearnablePositionEncoder(embed_size, max_length)
+			elif time_encoding_form=='random':
+				self.time_encoder = RandomPositionalEncoder(embed_size, max_length)
+			else:
+				raise ValueError('time_encoding_form must be "sinusoidal", "learnable", or "random".')
 		self.rnn = getattr(nn, rnn_name)(embed_size*2 if time_encoding=='concat' else embed_size,
 										hidden_size, batch_first=True, bidirectional=False,
 										**rnn_kwargs)
