@@ -3,9 +3,17 @@
 import torch
 import torch.nn.functional as F
 
-class RandomSequence(object):
+class _Base(object):
+	def __init__(self, dummy_datasize=512):
+		self.dummy_datasize = dummy_datasize
+	
+	def __len__(self):
+		return self.dummy_datasize
+
+class RandomSequence(_Base):
 	collate_fn = None
-	def __init__(self, vocab_size, length, num_held_out=0):
+	def __init__(self, vocab_size, length, num_held_out=0, **kwargs):
+		super().__init__(**kwargs)
 		self.vocab_size = vocab_size
 		self.length = length
 		if num_held_out:
@@ -27,12 +35,10 @@ class RandomSequence(object):
 				break
 		return sequence
 
-	def __len__(self):
-		return 512 # dummy length
-
-class VariableLengthSequence(object):
+class VariableLengthSequence(_Base):
 	collate_fn = None
-	def __init__(self, vocab_size, max_length, num_held_out=0, min_length=1):
+	def __init__(self, vocab_size, max_length, num_held_out=0, min_length=1, **kwargs):
+		super().__init__(**kwargs)
 		self.vocab_size = vocab_size
 		self.max_length = max_length
 		self.min_length = min_length
@@ -58,23 +64,52 @@ class VariableLengthSequence(object):
 				or (sequence!=self.held_out[length]).any(dim=-1).all(dim=0).item():
 				break
 		return sequence
-
-	def __len__(self):
-		return 512 # dummy length
 	
 	@staticmethod
 	def collate_fn(batch):
 		return batch # NOTE: Return as a list
-	
 
-class TransitivityTest(object):
+class FreqentVSRare(_Base):
+	collate_fn = None
+	def __init__(self, vocab_size, length, num_held_out=0, rarity=1/4, **kwargs):
+		super().__init__(**kwargs)
+		self.vocab_size = vocab_size
+		self.length = length
+		self.rarity = rarity
+		if num_held_out:
+			possible_patterns = (vocab_size//2)**length
+			assert possible_patterns>num_held_out//2, 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
+			def _hold_out():
+				held_out = torch.randint(self.vocab_size//2, size=(1, length))
+				while held_out.size(0)<num_held_out//2:
+					candidate = torch.randint(self.vocab_size//2, size=(1, length))
+					if (candidate!=held_out).any(dim=-1).all(dim=0).item(): # check duplication
+						held_out = torch.cat([held_out,candidate], dim=0)
+				return held_out
+			held_out_frequent = _hold_out()
+			held_out_rare = _hold_out()+vocab_size//2
+			self.held_out = torch.stack([held_out_frequent,held_out_rare],dim=0)
+		else:
+			self.held_out = None
+
+	def __getitem__(self, ix):
+		while True: # Rejection sampling
+			sequence = torch.randint(self.vocab_size//2, size=(self.length,))
+			is_rare = (torch.rand_like(sequence, dtype=torch.float)<self.rarity).long()
+			sequence = sequence+is_rare*self.vocab_size//2
+			if self.held_out is None or (sequence!=self.held_out).any(dim=-1).all().item():
+				break
+		return sequence
+
+class TransitivityTest(_Base):
 	"""
 	Each sequence is sampled from either the first or last three quarter of the vocab.
 	e.g., {0,...,7} -> {0,1,2,3,4,5} or {2,3,4,5,6,7}
 	Then, the test sequence is sampled from the disjoint portion {0,1,6,7}:
 	"""
 	collate_fn = None
-	def __init__(self, vocab_size, length, num_held_out=0):
+	def __init__(self, vocab_size, length, num_held_out=0, **kwargs):
+		super().__init__(**kwargs)
 		assert vocab_size>=4, 'vocab_size must be 4 or greater.'
 		assert (vocab_size % 4)==0, 'vocab_size must be divisible by 4.'
 		self.vocab_size = vocab_size
@@ -99,12 +134,10 @@ class TransitivityTest(object):
 		return torch.randint(self.vocab_size*3//4, size=(self.length,)) \
 				+ (self.vocab_size//4)*torch.randint(2, size=(1,)) # vocab onset
 
-	def __len__(self):
-		return 512 # dummy length
-
 class RandomSphere(object):
 	collate_fn = None
-	def __init__(self, dimensionality, length, num_test_seqs=0):
+	def __init__(self, dimensionality, length, num_test_seqs=0, **kwargs):
+		super().__init__(**kwargs)
 		self.dimensionality = dimensionality
 		self.length = length
 		if num_test_seqs:
@@ -117,6 +150,3 @@ class RandomSphere(object):
 		sequence = torch.randn(size=(self.length,self.dimensionality))
 		sequence = F.normalize(sequence, p=2.0, dim=-1)
 		return sequence
-
-	def __len__(self):
-		return 512 # dummy length

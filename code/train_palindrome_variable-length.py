@@ -157,5 +157,5 @@ if __name__=='__main__':
 								warmup_prefix=True, lr_min=0.0)
 	learner = Learner(logger, args.save_dir, model_configs, optim_config, scheduler_config,
 						device=args.device, seed=args.seed)
-	dataset = VariableLengthSequence(args.vocab_size, args.max_length, args.num_held_out, min_length=args.min_length)
+	dataset = VariableLengthSequence(args.vocab_size, args.max_length, args.num_held_out, min_length=args.min_length, dummy_datasize=max(512,args.batch_size))
 	learner(dataset, args.num_iterations, args.batch_size, args.saving_interval, args.num_workers)

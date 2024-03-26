@@ -76,6 +76,6 @@ if __name__=='__main__':
 								warmup_prefix=True, lr_min=0.0)
 	learner = Learner(logger, args.save_dir, model_configs, optim_config, scheduler_config,
 						device=args.device, seed=args.seed)
-	dataset = RandomSequence(args.extra_vocab_size+original_vocab_size, args.seq_length, 0)
+	dataset = RandomSequence(args.extra_vocab_size+original_vocab_size, args.seq_length, 0, dummy_datasize=max(512,args.batch_size))
 	reset_heldout_data(dataset, args.num_held_out, args.extra_vocab_size)
 	learner(dataset, args.num_iterations, args.batch_size, args.saving_interval, args.num_workers)
