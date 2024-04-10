@@ -71,32 +71,42 @@ class VariableLengthSequence(_Base):
 
 class FreqentVSRare(_Base):
 	collate_fn = None
-	def __init__(self, vocab_size, length, num_held_out=0, rarity=1/4, **kwargs):
+	def __init__(self, vocab_size, length, num_held_out=0, rarity=1/4, num_frequent=None, **kwargs):
 		super().__init__(**kwargs)
 		self.vocab_size = vocab_size
 		self.length = length
 		self.rarity = rarity
+		if num_frequent is None:
+			num_frequent = vocab_size//2
+			self.num_rare = None # NOTE: Use this None for backward-compatibility w/ previous implementations.
+		else:
+			self.num_rare = vocab_size-num_frequent
+		self.num_frequent = num_frequent
 		if num_held_out:
-			possible_patterns = (vocab_size//2)**length
+			possible_patterns = num_frequent**length
 			assert possible_patterns>num_held_out//2, 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
-			def _hold_out():
-				held_out = torch.randint(self.vocab_size//2, size=(1, length))
+			def _hold_out(sub_vocab_size):
+				held_out = torch.randint(sub_vocab_size, size=(1, length))
 				while held_out.size(0)<num_held_out//2:
-					candidate = torch.randint(self.vocab_size//2, size=(1, length))
+					candidate = torch.randint(sub_vocab_size, size=(1, length))
 					if (candidate!=held_out).any(dim=-1).all(dim=0).item(): # check duplication
 						held_out = torch.cat([held_out,candidate], dim=0)
 				return held_out
-			held_out_frequent = _hold_out()
-			held_out_rare = _hold_out()+vocab_size//2
+			held_out_frequent = _hold_out(num_frequent)
+			held_out_rare = _hold_out(vocab_size-num_frequent)+num_frequent
 			self.held_out = torch.stack([held_out_frequent,held_out_rare],dim=0)
 		else:
 			self.held_out = None
 
 	def __getitem__(self, ix):
 		while True: # Rejection sampling
-			sequence = torch.randint(self.vocab_size//2, size=(self.length,))
-			is_rare = (torch.rand_like(sequence, dtype=torch.float)<self.rarity).long()
-			sequence = sequence+is_rare*self.vocab_size//2
+			sequence = torch.randint(self.num_frequent, size=(self.length,))
+			is_rare = torch.rand_like(sequence, dtype=torch.float)<self.rarity
+			if self.num_rare is None: # = Even sized
+				sequence = sequence+is_rare.long()*self.num_frequent
+			else:
+				rare_sequence = torch.randint(self.num_rare, size=(self.length,))+self.num_frequent
+				sequence = torch.where(is_rare, rare_sequence, sequence)
 			if self.held_out is None or (sequence!=self.held_out).any(dim=-1).all().item():
 				break
 		return sequence

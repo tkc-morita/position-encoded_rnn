@@ -66,7 +66,8 @@ if __name__=='__main__':
 	parser.add_argument('save_dir', type=str, help='Path to the directory where results are saved.')
 
 	parser.add_argument('--num_held_out', type=int, default=0, help='TOTAL # of random sequences (frequent+rare) to be held out for testing.')
-	parser.add_argument('--rarity', type=float, default=1/4, help='Probability of choosing the rare vocabulary.')
+	parser.add_argument('--rarity', type=float, default=1/2, help='Probability of choosing the rare vocabulary.')
+	parser.add_argument('--num_frequent', type=int, default=None, help='# of frequent vocabulary items. Equals to vocab_size/2 by default.')
 
 	parser.add_argument('--rnn_name', type=str, required=True, choices=['RNN','GRU','LSTM'], help='Type of RNN.')
 	parser.add_argument('--hidden_size', type=int, default=512, help='Dimensionality of hidden layer(s) in RNN.')
@@ -95,6 +96,9 @@ if __name__=='__main__':
 	logger.info('Vocabulary size: {}'.format(args.vocab_size))
 	logger.info('Sequence length: {}'.format(args.seq_length))
 	logger.info('Rarity: {}'.format(args.rarity))
+	if not args.num_frequent is None:
+		logger.info('Vocabulary is split unevenly into two partitions of size {num_frequent} vs. {vocab_size}-{num_frequent}.'.format(
+					num_frequent=args.num_frequent,vocab_size=args.vocab_size))
 
 	model_configs = dict()
 	model_configs['rnn'] = dict(module_name='RNN',
@@ -116,5 +120,7 @@ if __name__=='__main__':
 								warmup_prefix=True, lr_min=0.0)
 	learner = Learner(logger, args.save_dir, model_configs, optim_config, scheduler_config,
 						device=args.device, seed=args.seed)
-	dataset = FreqentVSRare(args.vocab_size, args.seq_length, args.num_held_out, rarity=args.rarity, dummy_datasize=max(512,args.batch_size))
+	dataset = FreqentVSRare(args.vocab_size, args.seq_length, args.num_held_out,
+								rarity=args.rarity, num_frequent=args.num_frequent,
+								dummy_datasize=max(512,args.batch_size))
 	learner(dataset, args.num_iterations, args.batch_size, args.saving_interval, args.num_workers)

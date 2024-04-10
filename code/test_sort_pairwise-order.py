@@ -76,13 +76,13 @@ class Tester(Learner):
 if __name__=='__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('checkpoint', type=str, help='Path to the checkpoint of the trained model.')
-	parser.add_argument('--log_path', type=str, default=None, help='Path to the .log file where results are logged.')
+	# parser.add_argument('--log_path', type=str, default=None, help='Path to the .log file where results are logged.')
 	parser.add_argument('--device', type=str, default='cpu', help='Device.')
 	args = parser.parse_args()
 
-	if not args.log_path is None:
-		os.makedirs(os.path.dirname(args.log_path), exist_ok=True)
-	logger = get_logger(args.log_path)
+	# if not args.log_path is None:
+		# os.makedirs(os.path.dirname(args.log_path), exist_ok=True)
+	logger = get_logger()#args.log_path)
 
 	tester = Tester(logger, args.checkpoint, device=args.device)
 	tester()
