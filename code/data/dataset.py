@@ -71,7 +71,8 @@ class VariableLengthSequence(_Base):
 
 class FreqentVSRare(_Base):
 	collate_fn = None
-	def __init__(self, vocab_size, length, num_held_out=0, rarity=1/4, num_frequent=None, **kwargs):
+	def __init__(self, vocab_size, length, num_held_out=0, rarity=1/4, num_frequent=None,
+					mixed_held_out=False, **kwargs):
 		super().__init__(**kwargs)
 		self.vocab_size = vocab_size
 		self.length = length
@@ -83,7 +84,7 @@ class FreqentVSRare(_Base):
 			self.num_rare = vocab_size-num_frequent
 		self.num_frequent = num_frequent
 		if num_held_out:
-			possible_patterns = num_frequent**length
+			possible_patterns = vocab_size**length if mixed_held_out else num_frequent**length
 			assert possible_patterns>num_held_out//2, 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
 			def _hold_out(sub_vocab_size):
 				held_out = torch.randint(sub_vocab_size, size=(1, length))
@@ -92,9 +93,12 @@ class FreqentVSRare(_Base):
 					if (candidate!=held_out).any(dim=-1).all(dim=0).item(): # check duplication
 						held_out = torch.cat([held_out,candidate], dim=0)
 				return held_out
-			held_out_frequent = _hold_out(num_frequent)
-			held_out_rare = _hold_out(vocab_size-num_frequent)+num_frequent
-			self.held_out = torch.stack([held_out_frequent,held_out_rare],dim=0)
+			if mixed_held_out:
+				self.held_out = _hold_out(vocab_size)
+			else:
+				held_out_frequent = _hold_out(num_frequent)
+				held_out_rare = _hold_out(vocab_size-num_frequent)+num_frequent
+				self.held_out = torch.stack([held_out_frequent,held_out_rare],dim=0)
 		else:
 			self.held_out = None
 

@@ -11,6 +11,8 @@ from data.dataloader import get_data_loader
 
 class Learner(_Learner):
 	def __call__(self, dataset, num_iterations, batch_size, saving_interval, num_workers=1):
+		if dataset.held_out.ndim==2:
+			super().__call__(dataset, num_iterations, batch_size, saving_interval, num_workers=num_workers)
 		if self.retrieval:
 			start_iter = self.last_iteration + 1
 			self.logger.info('To be restarted from the beginning of iteration #: {iteration}'.format(iteration=start_iter+1))
@@ -41,6 +43,8 @@ class Learner(_Learner):
 
 	def test(self, sequence):
 		original_shape = sequence.size()
+		if len(original_shape)==2: # NOTE: No split b/w frequent vs. rare.
+			return super().test(sequence)
 		sequence = sequence.to(self.device).view(-1,*original_shape[2:])
 
 		palindrome = sequence.flip(dims=(1,))
@@ -51,9 +55,9 @@ class Learner(_Learner):
 		logits = self.rnn(input)
 		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
 		
-		is_correct = (logits.argmax(dim=-1)==palindrome).view(original_shape)
-		token_accuracy = is_correct.float().mean((1,2))
-		seq_accuracy = is_correct.all(dim=-1).float().mean(1)
+		is_correct = (logits.argmax(dim=-1)==palindrome).view(original_shape) # -> batch_size x seq_length
+		token_accuracy = is_correct.float().mean((-2,-1))
+		seq_accuracy = is_correct.all(dim=-1).float().mean(-1)
 		self.logger.info('Test accuracy for frequent (token): {}'.format(token_accuracy[0].item()))
 		self.logger.info('Test accuracy for frequent (sequence-wise full-match): {}'.format(seq_accuracy[0].item()))
 		self.logger.info('Test accuracy for rare (token): {}'.format(token_accuracy[1].item()))
@@ -66,6 +70,7 @@ if __name__=='__main__':
 	parser.add_argument('save_dir', type=str, help='Path to the directory where results are saved.')
 
 	parser.add_argument('--num_held_out', type=int, default=0, help='TOTAL # of random sequences (frequent+rare) to be held out for testing.')
+	parser.add_argument('--mixed_held_out', action='store_true', help='Hold out sequences consisting of a mixture of frequent and rare tokens.')
 	parser.add_argument('--rarity', type=float, default=1/2, help='Probability of choosing the rare vocabulary.')
 	parser.add_argument('--num_frequent', type=int, default=None, help='# of frequent vocabulary items. Equals to vocab_size/2 by default.')
 
@@ -121,6 +126,7 @@ if __name__=='__main__':
 	learner = Learner(logger, args.save_dir, model_configs, optim_config, scheduler_config,
 						device=args.device, seed=args.seed)
 	dataset = FreqentVSRare(args.vocab_size, args.seq_length, args.num_held_out,
+								mixed_held_out=args.mixed_held_out,
 								rarity=args.rarity, num_frequent=args.num_frequent,
 								dummy_datasize=max(512,args.batch_size))
 	learner(dataset, args.num_iterations, args.batch_size, args.saving_interval, args.num_workers)
