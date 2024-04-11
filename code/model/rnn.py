@@ -48,18 +48,23 @@ class RNN(nn.Module):
 		return output
 	
 	def _rnn(self, input, time_mask):
-		if not self.time_encoding is None:
-			time_encoded = self.time_encoder(input)
-			if not time_mask is None:
-				if time_mask.ndim==2:
-					time_mask = time_mask.unsqueeze(-1)
-				time_encoded = time_encoded.masked_fill(time_mask, 0.0)
-			if self.time_encoding=='add':
-				input = input + time_encoded
-			elif self.time_encoding=='concat':
-				input = torch.cat([input, time_encoded.expand_as(input)], dim=-1)
+		input = self._encode_time(input, time_mask)
 		output,_ = self.rnn(input)
 		return output
+	
+	def _encode_time(self, input, time_mask):
+		if self.time_encoding is None:
+			return input
+		time_encoded = self.time_encoder(input)
+		if not time_mask is None:
+			if time_mask.ndim==2:
+				time_mask = time_mask.unsqueeze(-1)
+			time_encoded = time_encoded.masked_fill(time_mask, 0.0)
+		if self.time_encoding=='add':
+			input = input + time_encoded
+		elif self.time_encoding=='concat':
+			input = torch.cat([input, time_encoded.expand_as(input)], dim=-1)
+		return input
 
 	def get_padding_embedding(self):
 		return self.embedding.weight[-1,:]
