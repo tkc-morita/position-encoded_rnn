@@ -64,12 +64,12 @@ class Learner(_Learner):
 					self.logger.info('Test accuracy of {prefix_or_suffix} in {prefix_type}-{suffix_type} (token): {accuracy}'.format(
 						prefix_type=['frequent','rare'][prefix_ix],
 						suffix_type=['frequent','rare'][suffix_ix],
-						prefix_or_suffix=['prefix','suffix'][prediction_ix],
+						prefix_or_suffix=['suffix','prefix'][prediction_ix], # NOTE: prefix of predictions corresponds to the suffix of the inputs.
 						accuracy=token_accuracy[prefix_ix,suffix_ix,prediction_ix]))
 					self.logger.info('Test accuracy of {prefix_or_suffix} in {prefix_type}-{suffix_type} (sequence-wise full-match): {accuracy}'.format(
 						prefix_type=['frequent','rare'][prefix_ix],
 						suffix_type=['frequent','rare'][suffix_ix],
-						prefix_or_suffix=['prefix','suffix'][prediction_ix],
+						prefix_or_suffix=['suffix','prefix'][prediction_ix],
 						accuracy=seq_accuracy[prefix_ix,suffix_ix,prediction_ix]))
 
 if __name__=='__main__':
