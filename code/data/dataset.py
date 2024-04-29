@@ -84,21 +84,30 @@ class FreqentVSRare(_Base):
 			self.num_rare = vocab_size-num_frequent
 		self.num_frequent = num_frequent
 		if num_held_out:
-			possible_patterns = vocab_size**length if mixed_held_out else num_frequent**length
-			assert possible_patterns>num_held_out//2, 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
-			def _hold_out(sub_vocab_size):
+			def _hold_out(sub_vocab_size, num_sub_held_out):
 				held_out = torch.randint(sub_vocab_size, size=(1, length))
-				while held_out.size(0)<num_held_out//2:
+				while held_out.size(0)<num_sub_held_out:
 					candidate = torch.randint(sub_vocab_size, size=(1, length))
 					if (candidate!=held_out).any(dim=-1).all(dim=0).item(): # check duplication
 						held_out = torch.cat([held_out,candidate], dim=0)
 				return held_out
 			if mixed_held_out:
-				self.held_out = _hold_out(vocab_size)
+				possible_patterns = vocab_size**length
+				assert possible_patterns>num_held_out, 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
+				self.held_out = _hold_out(vocab_size, num_held_out)
 			else:
-				held_out_frequent = _hold_out(num_frequent)
-				held_out_rare = _hold_out(vocab_size-num_frequent)+num_frequent
-				self.held_out = torch.stack([held_out_frequent,held_out_rare],dim=0)
+				possible_patterns = num_frequent**length
+				assert possible_patterns>num_held_out//4, 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
+				held_out_frequent_frequent = _hold_out(num_frequent, num_held_out//4)
+				held_out_rare_rare = _hold_out(vocab_size-num_frequent, num_held_out//4)+num_frequent
+				held_out_frequent_rare = torch.cat([held_out_frequent_frequent[:,:length//2],
+													held_out_rare_rare[:,length//2:]], dim=-1)
+				held_out_rare_frequent = torch.cat([held_out_rare_rare[:,:length//2],
+													held_out_frequent_frequent[:,length//2:]], dim=-1)
+				self.held_out = torch.stack([
+									torch.stack([held_out_frequent_frequent,held_out_frequent_rare],dim=0),
+									torch.stack([held_out_rare_frequent,held_out_rare_rare],dim=0),
+								], dim=0) # prefix_frequency x suffix_frequency x #held_out x seq_length
 		else:
 			self.held_out = None
 

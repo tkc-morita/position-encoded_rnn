@@ -45,7 +45,7 @@ class Learner(_Learner):
 		original_shape = sequence.size()
 		if len(original_shape)==2: # NOTE: No split b/w frequent vs. rare.
 			return super().test(sequence)
-		sequence = sequence.to(self.device).view(-1,*original_shape[2:])
+		sequence = sequence.to(self.device).view(-1,original_shape[-1])
 
 		palindrome = sequence.flip(dims=(1,))
 		vocab_size = self.checkpoint['modules']['rnn']['init_args']['vocab_size']
@@ -55,13 +55,22 @@ class Learner(_Learner):
 		logits = self.rnn(input)
 		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
 		
-		is_correct = (logits.argmax(dim=-1)==palindrome).view(original_shape) # -> batch_size x seq_length
-		token_accuracy = is_correct.float().mean((-2,-1))
-		seq_accuracy = is_correct.all(dim=-1).float().mean(-1)
-		self.logger.info('Test accuracy for frequent (token): {}'.format(token_accuracy[0].item()))
-		self.logger.info('Test accuracy for frequent (sequence-wise full-match): {}'.format(seq_accuracy[0].item()))
-		self.logger.info('Test accuracy for rare (token): {}'.format(token_accuracy[1].item()))
-		self.logger.info('Test accuracy for rare (sequence-wise full-match): {}'.format(seq_accuracy[1].item()))
+		is_correct = (logits.argmax(dim=-1)==palindrome).view(*original_shape[:-1],2,original_shape[-1]//2) # -> 2 x 2 x batch_size x 2 x seq_length//2
+		token_accuracy = is_correct.float().mean((-3,-1)) # -> 2 x 2 x 2
+		seq_accuracy = is_correct.all(dim=-1).float().mean(-2) # -> 2 x 2 x 2
+		for prefix_ix in range(2):
+			for suffix_ix in range(2):
+				for prediction_ix in range(2):
+					self.logger.info('Test accuracy of {prefix_or_suffix} in {prefix_type}-{suffix_type} (token): {accuracy}'.format(
+						prefix_type=['frequent','rare'][prefix_ix],
+						suffix_type=['frequent','rare'][suffix_ix],
+						prefix_or_suffix=['prefix','suffix'][prediction_ix],
+						accuracy=token_accuracy[prefix_ix,suffix_ix,prediction_ix]))
+					self.logger.info('Test accuracy of {prefix_or_suffix} in {prefix_type}-{suffix_type} (sequence-wise full-match): {accuracy}'.format(
+						prefix_type=['frequent','rare'][prefix_ix],
+						suffix_type=['frequent','rare'][suffix_ix],
+						prefix_or_suffix=['prefix','suffix'][prediction_ix],
+						accuracy=seq_accuracy[prefix_ix,suffix_ix,prediction_ix]))
 
 if __name__=='__main__':
 	parser = argparse.ArgumentParser()
