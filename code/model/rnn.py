@@ -9,11 +9,12 @@ class RNN(nn.Module):
 	def __init__(self, vocab_size, hidden_size, rnn_name,
 					embed_size=None, time_encoding=None,
 					time_encoding_form='sinusoidal', max_length=None,
-					learnable_padding_token=False, **rnn_kwargs):
+					learnable_padding_token=False,
+					no_padding_token=False, **rnn_kwargs):
 		super().__init__()
 		if embed_size is None:
 			embed_size = hidden_size
-		self.embedding = nn.Embedding(vocab_size+1, embed_size,
+		self.embedding = nn.Embedding(vocab_size+int(not no_padding_token), embed_size,
 										padding_idx=None if learnable_padding_token
 													else vocab_size)
 		self.time_encoding = time_encoding
@@ -169,3 +170,33 @@ class RNN_AR(RNN):
 			output.append(output_t.squeeze(dim=1))
 			input_t = output_t.argmax(dim=-1)
 		return torch.stack(output, dim=1)
+	
+class RNN_LM(RNN):
+	"""
+	Autoregressive language modeling.
+	"""
+	def forward(self, input, num_steps=None):
+		if num_steps is None:
+			return super().forward(input)
+		# NOTE: input is assumed to be a prefix.
+		input = self.embedding(input)
+		input = self._encode_time(input, None)
+		output,hidden = self.rnn(input)
+		output = self.to_logits(output)
+		input_t = output[:,-1,None,:].argmax(dim=-1)
+		dummy_input = torch.zeros((input.size(0),input.size(1)+num_steps), device=input.device)
+		time_encoded = None if self.time_encoding is None \
+						else self.time_encoder(dummy_input)[:,input.size(1):,:] # Strip off the prefix
+		output = list(output.unbind(dim=1))
+		for t in range(num_steps):
+			input_t = self.embedding(input_t)
+			if self.time_encoding=='add':
+				input_t = input_t + time_encoded[:,t,None,:]
+			elif self.time_encoding=='concat':
+				input_t = torch.cat([input_t,time_encoded[:,t,None,:].expand_as(input_t)], dim=-1)
+			output_t,hidden = self.rnn(input_t, hidden)
+			output_t = self.to_logits(output_t)
+			output.append(output_t.squeeze(dim=1))
+			input_t = output_t.argmax(dim=-1)
+		return torch.stack(output, dim=1)
+	

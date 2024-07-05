@@ -11,3 +11,6 @@ code/analyze-gradient_palindrome.py
 code/train_palindrome_vocab-extension.py
 code/train_sort_transitivity.py
 code/train_count.py
+code/train_pseudo-lm.py
+code/test_lyapunov.py
+code/model/lyapunov_analysis.py

@@ -22,8 +22,8 @@ class Learner(_Learner):
 			self.logger.info("batch size for training data: {size}".format(size=batch_size))
 			self.checkpoint['held_out_data'] = dataset.held_out
 			patterns_held_out = 0 if dataset.held_out is None \
-								else dataset.held_out.size(1) # <- NOTE: Change here
-			self.logger.info('{} frequent-only and rare-only patterns are held out for test.'.format(patterns_held_out)) # <- NOTE: Change here
+								else 'x'.join(map(str, dataset.held_out.size()[:-2])) # <- NOTE: Change here
+			self.logger.info('{} patterns are held out for test.'.format(patterns_held_out)) # <- NOTE: Change here
 			start_iter = 0
 		dataloader = get_data_loader(
 								dataset,
@@ -55,22 +55,30 @@ class Learner(_Learner):
 		logits = self.rnn(input)
 		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
 		
-		is_correct = (logits.argmax(dim=-1)==palindrome).view(*original_shape[:-1],2,original_shape[-1]//2) # -> 2 x 2 x batch_size x 2 x seq_length//2
-		token_accuracy = is_correct.float().mean((-3,-1)) # -> 2 x 2 x 2
-		seq_accuracy = is_correct.all(dim=-1).float().mean(-2) # -> 2 x 2 x 2
-		for prefix_ix in range(2):
-			for suffix_ix in range(2):
-				for prediction_ix in range(2):
-					self.logger.info('Test accuracy of {prefix_or_suffix} in {prefix_type}-{suffix_type} (token): {accuracy}'.format(
-						prefix_type=['frequent','rare'][prefix_ix],
-						suffix_type=['frequent','rare'][suffix_ix],
-						prefix_or_suffix=['suffix','prefix'][prediction_ix], # NOTE: prefix of predictions corresponds to the suffix of the inputs.
-						accuracy=token_accuracy[prefix_ix,suffix_ix,prediction_ix]))
-					self.logger.info('Test accuracy of {prefix_or_suffix} in {prefix_type}-{suffix_type} (sequence-wise full-match): {accuracy}'.format(
-						prefix_type=['frequent','rare'][prefix_ix],
-						suffix_type=['frequent','rare'][suffix_ix],
-						prefix_or_suffix=['suffix','prefix'][prediction_ix],
-						accuracy=seq_accuracy[prefix_ix,suffix_ix,prediction_ix]))
+		is_correct = (logits.argmax(dim=-1)==palindrome).view(*original_shape) # -> 2 x 2 x N x L x L
+		is_correct = is_correct.flip(dims=(-1,) # back to the input order
+								).diagonal(offset=0, dim1=-2, dim2=-1) # -> 2 x 2 x N x L
+		token_accuracy = is_correct.float().mean((-2)) # -> 2 x 2 x L
+		# seq_accuracy = is_correct.all(dim=-1).float().mean(-1) # -> 2 x 2
+		# token_accuracy = is_correct.float().mean((-3,-1)) # -> 2 x 2 x 2
+		# seq_accuracy = is_correct.all(dim=-1).float().mean(-2) # -> 2 x 2 x 2
+		for target_type_ix in range(2):
+			for disturbant_type_ix in range(2):
+				# self.logger.info('Test accuracy of {target_type} tokens surrounded by {disturbant_type} tokens (sequence-wise full-match): {accuracy}'.format(
+				# 		target_type=['frequent','rare'][target_type_ix],
+				# 		disturbant_type=['frequent','rare'][disturbant_type_ix],
+				# 		accuracy=seq_accuracy[target_type_ix,disturbant_type_ix].item()))
+				for target_pos in range(token_accuracy.size(-1)):#range(2):
+					self.logger.info('Test accuracy of {target_type} tokens input at t={target_pos} surrounded by {disturbant_type} token (token): {accuracy}'.format(
+						target_type=['frequent','rare'][target_type_ix],
+						disturbant_type=['frequent','rare'][disturbant_type_ix],
+						target_pos=target_pos,
+						accuracy=token_accuracy[target_type_ix,disturbant_type_ix,target_pos].item()))
+					# self.logger.info('Test accuracy of {prefix_or_suffix} in {target_type}-{disturbant_type} (sequence-wise full-match): {accuracy}'.format(
+					# 	target_type=['frequent','rare'][target_type_ix],
+					# 	disturbant_type=['frequent','rare'][disturbant_type_ix],
+					# 	prefix_or_suffix=['suffix','prefix'][target_pos],
+					# 	accuracy=seq_accuracy[target_type_ix,disturbant_type_ix,target_pos]))
 
 if __name__=='__main__':
 	parser = argparse.ArgumentParser()
