@@ -51,8 +51,27 @@ python code/train_palindrome.py $vocab_size $seq_length $save_dir \
 	$time_encoding_arg --time_encoding_form $time_encoding_form \
 	--learnable_padding_token --num_held_out $num_held_out
 
-## Variable input length (Fig. 9 in Appendix)
+# Training on the reverse-ordering task w/ a dual-frequency vocabulary (Fig. 3)
+rarity=0.125 #=1/8
+save_dir=$save_root/time-stamped_rnn/palindrome_dual-freq_single-target/$settings/${train_job_id}
+python code/train_palindrome_dual-freq.py $vocab_size $seq_length $save_dir \
+	--rnn_name $rnn_name \
+	--hidden_size $hidden_size \
+	--embed_size $embed_size \
+	--num_layers $num_layers \
+	--dropout $dropout \
+	--num_iterations $train_iterations \
+	--batch_size $batch_size --saving_interval $saving_interval --num_workers $num_workers \
+	--learning_rate $learning_rate --warmup_iters $warmup_iters --device $device --seed $seed \
+	$time_encoding_arg \
+	--learnable_padding_token --num_held_out $num_held_out --rarity $rarity
 
+# Analyze the gradients of the RNN trained on the dual-frequency vocabulary (Fig. 5)
+num_seq_triplets=1024
+batch_size=`[ ${rnn_name} = "RNN" ] && echo 32 || echo 16`
+python code/test_jacobian_palindrome.py $save_dir --device $device $batch_size_option --num_seq_triplets $num_seq_triplets --batch_size $batch_size
+
+## Variable input length (Fig. 9 in Appendix C)
 min_length=32
 max_length=64
 
@@ -71,7 +90,7 @@ python code/train_palindrome_variable-length.py $vocab_size $min_length $max_len
 	$time_encoding_arg \
 	--learnable_padding_token --num_held_out $num_held_out
 
-# Training on the sorting task. (Fig. 8 in Appendix)
+# Training on the sorting task. (Fig. 8 in Appendix A)
 
 settings=${rnn_name}/len-${seq_length}/vocab-${vocab_size}/`[ -z "$time_encoding" ] && echo "no-time" || echo $time_encoding`
 save_dir=$save_root/time-stamped_rnn/sort/$settings/${train_job_id}
@@ -88,7 +107,7 @@ python code/train_sort.py $vocab_size $seq_length $save_dir \
 	$time_encoding_arg --time_encoding_form $time_encoding_form \
 	--learnable_padding_token --num_held_out $num_held_out
 
-# Reverse-ordering + Delayed-sum (Fig. 7 in Appendix)
+# Reverse-ordering + Delayed-sum (Fig. 7 in Appendix A)
 rnn_name=LSTM # Only LSTM was tested
 vocab_size= # 896-1088
 seq_length=16
