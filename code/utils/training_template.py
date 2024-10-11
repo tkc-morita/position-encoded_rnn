@@ -166,3 +166,101 @@ class Learner(object):
 		
 		self.seed = self.checkpoint['random_seed']
 		self.last_iteration = self.checkpoint['iteration']
+
+
+class NLPLearner(Learner):
+	def __call__(self, train_dataset, valid_dataset, vocabs, num_iterations,
+					batch_size, saving_interval, num_workers=1,
+					padding_token='<pad>', unk_token='<unk>', tokenizers=None,
+					max_length=None, specials=None):
+		if self.retrieval:
+			start_iter = self.last_iteration + 1
+			self.logger.info('To be restarted from the beginning of iteration #: {iteration}'.format(iteration=start_iter+1))
+			from torchtext.vocab import Vocab
+			from torchtext._torchtext import Vocab as VocabPybind
+			# from collections import OrderedDict
+			vocabs = {name:Vocab(VocabPybind(itos,None))
+						for name,itos in self.checkpoint['vocabs'].items()}
+			for vocab in vocabs.values():
+				if unk_token in vocab:
+					vocab.set_default_index(vocab[unk_token])
+		else:
+			self.logger.info("START LEARNING.")
+			self.logger.info("max # of iterations: {ep}".format(ep=num_iterations))
+			self.logger.info("batch size for training data: {size}".format(size=batch_size))
+			start_iter = 0
+			self.checkpoint['vocabs'] = {name:vocab.get_itos()
+											for name,vocab in vocabs.items()}
+		self.vocabs = vocabs
+		if specials is None:
+			specials = list(set([padding_token,unk_token]))
+		self.specials = {name:torch.tensor([vocab[s] for s in specials], device=self.device)
+							for name,vocab in vocabs.items()}
+		from torchtext.transforms import VocabTransform,ToTensor,Truncate,Sequential
+		self.transforms = {name:Sequential(
+								VocabTransform(vocab),
+								ToTensor(padding_value=vocab[padding_token]
+											if padding_token in vocab else None)
+								)
+							for name,vocab in vocabs.items()}
+		if not tokenizers is None:
+			for name,tokenizer in tokenizers.items():
+				self.transforms[name].insert(0,tokenizer)
+		if not max_length is None:
+			for name,transforms in self.transforms.items():
+				transforms.insert(-2,Truncate(max_seq_len=max_length)) # NOTE: Truncate before ToTensor
+		from torch.utils.data import DataLoader
+		from torch.utils.data.backward_compatibility import worker_init_fn
+		torch.manual_seed(self.seed)
+		torch.cuda.manual_seed_all(self.seed)
+		dataloader = DataLoader(
+								train_dataset,
+								batch_size=batch_size,
+								shuffle=True,
+								num_workers=num_workers,
+								collate_fn=self.collate_fn,
+								worker_init_fn=worker_init_fn)
+		self.train(dataloader, num_iterations, saving_interval, start_iter=start_iter)
+		self.logger.info('END OF TRAINING')
+
+		self.logger.info('START OF VALIDATION')
+		torch.manual_seed(self.seed)
+		torch.cuda.manual_seed_all(self.seed)
+		dataloader = DataLoader(
+								valid_dataset,
+								batch_size=batch_size,
+								shuffle=False,
+								num_workers=num_workers,
+								collate_fn=self.collate_fn,
+								worker_init_fn=worker_init_fn)
+		self.test(dataloader)
+		self.logger.info('END OF VALIDATION')
+
+	def train(self, dataloader, num_iterations, saving_interval, start_iter=0):
+		[getattr(self, attr_name).train() for attr_name in self.checkpoint['modules'].keys()]
+
+		iteration = 0
+		records = dict()
+		while iteration<num_iterations:
+			for iteration,batch in enumerate(dataloader, iteration):
+				if iteration>=num_iterations:
+					break # NOTE: Stop training
+				if iteration<start_iter:
+					continue # NOTE: Skip previous training.
+				iteration += 1 # Original starts with 0.
+
+				torch.manual_seed(iteration+self.seed)
+				torch.cuda.manual_seed_all(iteration+self.seed)
+
+				records = self.train_per_iteration(batch, records, iteration)
+
+				if iteration % saving_interval == 0:
+					self.logger.info('{iteration}/{num_iterations} iterations complete.'.format(iteration=iteration, num_iterations=num_iterations))
+					self.log_training_stats(records, saving_interval)
+					self.save_model(iteration-1) # Back to the original numbering starting with 0.
+					records = dict()
+		self.save_model(iteration-1)
+
+	def collate_fn(self, batch):
+		# NOTE: Specific to each task/dataset.
+		pass

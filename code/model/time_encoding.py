@@ -42,3 +42,13 @@ class RandomPositionalEncoder(LearnablePositionEncoder):
 		embeddings = torch.randn((max_length,embed_size))
 		embeddings = F.normalize(embeddings, p=2.0, dim=-1)
 		self.register_buffer('embeddings', embeddings)
+
+class DummyPositionEncoder(nn.Module):
+	"""
+	Pseudo positional encoding duplicating the input embeddings.
+	"""
+	def forward(self, reference):
+		"""
+		reference: batch_size x max_length_in_batch x embed_size
+		"""
+		return reference

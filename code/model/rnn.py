@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .time_encoding import SinusoidalPositionEncoder,LearnablePositionEncoder,RandomPositionalEncoder
+from .time_encoding import SinusoidalPositionEncoder,LearnablePositionEncoder,RandomPositionalEncoder,DummyPositionEncoder
 
 class RNN(nn.Module):
 	def __init__(self, vocab_size, hidden_size, rnn_name,
@@ -15,13 +15,15 @@ class RNN(nn.Module):
 		if embed_size is None:
 			embed_size = hidden_size
 		self.embedding = nn.Embedding(vocab_size+int(not no_padding_token), embed_size,
-										padding_idx=None if learnable_padding_token
+										padding_idx=None if (learnable_padding_token or no_padding_token)
 													else vocab_size)
 		self.time_encoding = time_encoding
 		if not time_encoding is None:
 			assert time_encoding in ['add', 'concat'], 'time_encoding must be either "add" or "concat"'
 			if time_encoding_form=='sinusoidal':
 				self.time_encoder = SinusoidalPositionEncoder(embed_size)
+			elif time_encoding_form=='dummy':
+				self.time_encoder = DummyPositionEncoder()
 			else:
 				assert not max_length is None, 'max_length must be specified.'
 				if time_encoding_form=='learnable':
@@ -35,7 +37,7 @@ class RNN(nn.Module):
 										**rnn_kwargs)
 		self.to_logits = nn.Linear(hidden_size, vocab_size)
 	
-	def forward(self, input, time_mask=None, return_feature=False):
+	def forward(self, input, time_mask=None, return_feature=False, target=None):
 		"""
 		input: batch_size x length (x embed_size if already embedded)
 		time_mask: batch_size x length x (1)
@@ -46,7 +48,16 @@ class RNN(nn.Module):
 		if return_feature:
 			return output
 		output = self.to_logits(output)
-		return output
+		if target is None:
+			return output
+		# NOTE: Efficiently compute loss on multiple GPUs for big vocab.
+		vocab_size = output.size(-1)
+		mask = target>=vocab_size # Mask out-of-vocab items.
+		target = target.masked_fill(mask, 0) # Dummy target
+		loss = F.cross_entropy(output.view(-1,vocab_size), target.view(-1), reduction='none')
+		loss = loss.masked_select(~mask.view(-1)).sum()
+		normalizer = mask.logical_not().sum() # NOTE: Different # of non-unk tokens on different GPUs.
+		return loss.view(1),normalizer.view(1) # NOTE: Work around PyTorch's warning on scalar output.
 	
 	def _rnn(self, input, time_mask):
 		input = self._encode_time(input, time_mask)
@@ -64,11 +75,39 @@ class RNN(nn.Module):
 		if self.time_encoding=='add':
 			input = input + time_encoded
 		elif self.time_encoding=='concat':
-			input = torch.cat([input, time_encoded.expand_as(input)], dim=-1)
+			input = torch.cat([input, time_encoded.expand(input.size(0),-1,-1)], dim=-1)
 		return input
 
 	def get_padding_embedding(self):
 		return self.embedding.weight[-1,:]
+
+class DifferentOutputVocabulary(RNN):
+	def __init__(self, vocab_size, output_size, *args, **kwargs):
+		super().__init__(vocab_size, *args, **kwargs)
+		self.to_logits = nn.Linear(self.to_logits.in_features, output_size)
+
+# class DualInputRNN(RNN):
+# 	def __init__(self, vocab_size, vocab_size2, *args, **kwargs):
+# 		super().__init__(vocab_size, *args, **kwargs)
+# 		embed_size = self.embedding.embedding_dim
+# 		self.embedding2 = nn.Embedding(vocab_size2+(self.embedding.num_embeddings-vocab_size),
+# 										embed_size, padding_idx=None)
+# 		self.rnn = self.rnn.__class__(self.rnn.input_size+embed_size, self.rnn.hidden_size, batch_first=True, bidirectional=False,
+# 										num_layers=self.rnn.num_layers, dropout=self.rnn.dropout)
+# 		if self.time_encoding=='add':
+# 			time_encoder_args = [embed_size*2]
+# 			if hasattr(self.time_encoder, 'embeddings'):
+# 				time_encoder_args.append(self.time_encoder.embeddings.size(0))
+# 			self.time_encoder = self.time_encoder.__class__(*time_encoder_args)
+
+# 	def forward(self, input1, input2, time_mask=None, return_feature=False):
+# 		input1 = self.embedding(input1)
+# 		input2 = self.embedding2(input2)
+# 		output = self._rnn(torch.cat([input1,input2], dim=-1), time_mask)
+# 		if return_feature:
+# 			return output
+# 		output = self.to_logits(output)
+# 		return output
 
 class RNN_w_MultiplePadding(RNN):
 	def __init__(self, vocab_size, *args, num_paddings=1, **kwargs):

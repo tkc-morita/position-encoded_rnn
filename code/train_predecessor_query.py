@@ -6,23 +6,23 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
 from utils.training_template import Learner as _Learner
 from utils.logging import get_logger
-from data.dataset import RandomSequence
+from data.dataset import NoOverlap
 
 class Learner(_Learner):
 	def train_per_iteration(self, sequence, records, iteration):
 		self.optimizer.zero_grad()
 		sequence = sequence.to(self.device)
 
-		palindrome = sequence.flip(dims=(1,))
-		vocab_size = self.checkpoint['modules']['rnn']['init_args']['vocab_size']
-		dummy_input = torch.full_like(sequence, vocab_size) # NOTE: Mapped to a fixed zero vector or learnable filler.
-		input = torch.cat([sequence, dummy_input], dim=1)
+		predecessor_pos = torch.randint(sequence.size(1)-1,size=(sequence.size(0),1),device=sequence.device)
+		query = sequence.take_along_dim(predecessor_pos+1, dim=1)
+		predecessor = sequence.take_along_dim(predecessor_pos, dim=1).squeeze(-1)
+		input = torch.cat([sequence, query], dim=1)
 
 		logits = self.rnn(input)
-		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
-		loss = F.cross_entropy(logits.reshape(-1,vocab_size), palindrome.view(-1))
+		logits = logits[:,-1,:] # Strip-off the encoding phase.
+		loss = F.cross_entropy(logits, predecessor)
 		self.update_records(records, 'loss', loss.item())
-		accuracy = (logits.argmax(dim=-1)==palindrome).float().mean()
+		accuracy = (logits.argmax(dim=-1)==predecessor).float().mean()
 		self.update_records(records, 'accuracy', accuracy.item())
 
 		loss.backward()
@@ -38,19 +38,17 @@ class Learner(_Learner):
 	def test(self, sequence):
 		sequence = sequence.to(self.device)
 
-		palindrome = sequence.flip(dims=(1,))
-		vocab_size = self.checkpoint['modules']['rnn']['init_args']['vocab_size']
-		dummy_input = torch.full_like(sequence, vocab_size) # NOTE: Mapped to a fixed zero vector or learnable filler.
-		input = torch.cat([sequence, dummy_input], dim=1)
+		predecessor_pos = torch.randint(sequence.size(1)-1,size=(sequence.size(0),1),device=sequence.device)
+		query = sequence.take_along_dim(predecessor_pos+1, dim=1)
+		predecessor = sequence.take_along_dim(predecessor_pos, dim=1).squeeze(-1)
+		input = torch.cat([sequence, query], dim=1)
 
 		logits = self.rnn(input)
-		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
+		logits = logits[:,-1,:] # Strip-off the encoding phase.
 		
-		is_correct = logits.argmax(dim=-1)==palindrome
-		token_accuracy = is_correct.float().mean().item()
-		seq_accuracy = is_correct.all(dim=-1).float().mean().item()
-		self.logger.info('Test accuracy (token): {}'.format(token_accuracy))
-		self.logger.info('Test accuracy (sequence-wise full-match): {}'.format(seq_accuracy))
+		is_correct = logits.argmax(dim=-1)==predecessor
+		accuracy = is_correct.float().mean().item()
+		self.logger.info('Test accuracy: {}'.format(accuracy))
 
 
 if __name__=='__main__':
@@ -65,10 +63,10 @@ if __name__=='__main__':
 	parser.add_argument('--hidden_size', type=int, default=512, help='Dimensionality of hidden layer(s) in RNN.')
 	parser.add_argument('--embed_size', type=int, default=None, help='Dimensionality of input (& time) embeddings. Equals to hidden_size if not specified.')
 	parser.add_argument('--time_encoding', type=str, default=None, choices=['add','concat'], help='Specifies whether time encoding is added to or concatenated with the input embeddings. Time encoding is not used if this option is left unspecified.')
-	parser.add_argument('--time_encoding_form', type=str, default='sinusoidal', choices=['sinusoidal','learnable','random','dummy'], help='Implementation of time encoding.')
+	parser.add_argument('--time_encoding_form', type=str, default='sinusoidal', choices=['sinusoidal','learnable','random'], help='Implementation of time encoding.')
 	parser.add_argument('--num_layers', type=int, default=1, help='# of layers in RNN.')
 	parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate in RNN.')
-	parser.add_argument('--learnable_padding_token', action='store_true', help='Use a learnable embedding for the dummy token in the output phase. Otherwise, the dummy token is represented by the zero vector.')
+	# parser.add_argument('--learnable_padding_token', action='store_true', help='Use a learnable embedding for the dummy token in the output phase. Otherwise, the dummy token is represented by the zero vector.')
 
 	parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate of Adam optimizer.')
 	parser.add_argument('--num_iterations', type=int, default=10000, help='# of training iterations.')
@@ -84,7 +82,7 @@ if __name__=='__main__':
 	os.makedirs(args.save_dir, exist_ok=True)
 	logger = get_logger(args.save_dir)
 
-	logger.info('Learns palindrome.')
+	logger.info('Learns to return the predecessor of the query token, given as the final input.')
 	logger.info('Vocabulary size: {}'.format(args.vocab_size))
 	logger.info('Sequence length: {}'.format(args.seq_length))
 
@@ -97,10 +95,10 @@ if __name__=='__main__':
 									embed_size=args.embed_size,
 									time_encoding=args.time_encoding,
 									time_encoding_form=args.time_encoding_form,
-									max_length=args.seq_length*2,
+									max_length=args.seq_length+1,
 									num_layers=args.num_layers,
 									dropout=args.dropout,
-									learnable_padding_token=args.learnable_padding_token,
+									no_padding_token=True,
 								))
 	optim_config = dict(lr=args.learning_rate, weight_decay=0.0, betas=(0.9,0.98), eps=1e-09)
 	scheduler_config = dict(t_initial=args.num_iterations,
@@ -108,5 +106,5 @@ if __name__=='__main__':
 								warmup_prefix=True, lr_min=0.0)
 	learner = Learner(logger, args.save_dir, model_configs, optim_config, scheduler_config,
 						device=args.device, seed=args.seed)
-	dataset = RandomSequence(args.vocab_size, args.seq_length, args.num_held_out, dummy_datasize=max(512,args.batch_size))
+	dataset = NoOverlap(args.vocab_size, args.seq_length, args.num_held_out, dummy_datasize=max(512,args.batch_size))
 	learner(dataset, args.num_iterations, args.batch_size, args.saving_interval, args.num_workers)

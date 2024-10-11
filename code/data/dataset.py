@@ -71,8 +71,8 @@ class VariableLengthSequence(_Base):
 
 class FreqentVSRare(_Base):
 	collate_fn = None
-	def __init__(self, vocab_size, length, num_held_out=0, rarity=1/4, num_frequent=None,
-					mixed_held_out=False, **kwargs):
+	def __init__(self, vocab_size, length, num_held_out=0, rarity=1/8, # <- Changed the default rarity to match the experiments (10/01/2024)
+					num_frequent=None, mixed_held_out=False, **kwargs):
 		super().__init__(**kwargs)
 		self.vocab_size = vocab_size
 		self.length = length
@@ -129,6 +129,33 @@ class FreqentVSRare(_Base):
 				rare_sequence = torch.randint(self.num_rare, size=(self.length,))+self.num_frequent
 				sequence = torch.where(is_rare, rare_sequence, sequence)
 			if self.held_out is None or (sequence!=self.held_out).any(dim=-1).all().item():
+				break
+		return sequence
+
+class NoOverlap(_Base):
+	collate_fn = None
+	def __init__(self, vocab_size, length, num_held_out=0, **kwargs):
+		super().__init__(**kwargs)
+		assert vocab_size>=length, 'vocab_size must be at least length.'
+		self.vocab_size = vocab_size
+		self.length = length
+		if num_held_out:
+			# NOTE: torch.prod more easily explodes than Python's builtin math.
+			possible_patterns = torch.e**torch.arange(1,vocab_size+1)[-self.length:].log().sum().item()
+			assert possible_patterns>torch.tensor(num_held_out).log().item(), 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
+			self.held_out = torch.randperm(self.vocab_size)[None,:self.length]
+			while self.held_out.size(0)<num_held_out:
+				candidate = torch.randperm(self.vocab_size)[None,:self.length]
+				if (candidate!=self.held_out).any(dim=-1).all(dim=0).item(): # check duplication
+					self.held_out = torch.cat([self.held_out,candidate], dim=0)
+			# self.held_out = torch.randint(self.vocab_size, size=(num_held_out, self.length))
+		else:
+			self.held_out = None
+
+	def __getitem__(self, ix):
+		while True: # Rejection sampling
+			sequence = torch.randperm(self.vocab_size)[:self.length]
+			if self.held_out is None or (sequence!=self.held_out).any(dim=-1).all(dim=0).item():
 				break
 		return sequence
 

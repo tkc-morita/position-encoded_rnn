@@ -14,11 +14,11 @@ class Learner(_Learner):
 		sequence = sequence.to(self.device)
 
 		palindrome = sequence.flip(dims=(1,))
-		vocab_size = self.checkpoint['modules']['rnn']['init_args']['vocab_size']
+		vocab_size = self.checkpoint['modules']['ssm']['init_args']['vocab_size']
 		dummy_input = torch.full_like(sequence, vocab_size) # NOTE: Mapped to a fixed zero vector or learnable filler.
 		input = torch.cat([sequence, dummy_input], dim=1)
 
-		logits = self.rnn(input)
+		logits = self.ssm(input)
 		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
 		loss = F.cross_entropy(logits.reshape(-1,vocab_size), palindrome.view(-1))
 		self.update_records(records, 'loss', loss.item())
@@ -39,11 +39,11 @@ class Learner(_Learner):
 		sequence = sequence.to(self.device)
 
 		palindrome = sequence.flip(dims=(1,))
-		vocab_size = self.checkpoint['modules']['rnn']['init_args']['vocab_size']
+		vocab_size = self.checkpoint['modules']['ssm']['init_args']['vocab_size']
 		dummy_input = torch.full_like(sequence, vocab_size) # NOTE: Mapped to a fixed zero vector or learnable filler.
 		input = torch.cat([sequence, dummy_input], dim=1)
 
-		logits = self.rnn(input)
+		logits = self.ssm(input)
 		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
 		
 		is_correct = logits.argmax(dim=-1)==palindrome
@@ -61,13 +61,13 @@ if __name__=='__main__':
 
 	parser.add_argument('--num_held_out', type=int, default=0, help='# of random sequences to be held out for testing.')
 
-	parser.add_argument('--rnn_name', type=str, required=True, choices=['RNN','GRU','LSTM'], help='Type of RNN.')
-	parser.add_argument('--hidden_size', type=int, default=512, help='Dimensionality of hidden layer(s) in RNN.')
+	# parser.add_argument('--rnn_name', type=str, required=True, choices=['RNN','GRU','LSTM'], help='Type of RNN.')
+	parser.add_argument('--hidden_size', type=int, default=512, help='Dimensionality of hidden layer(s) in SSM.')
 	parser.add_argument('--embed_size', type=int, default=None, help='Dimensionality of input (& time) embeddings. Equals to hidden_size if not specified.')
 	parser.add_argument('--time_encoding', type=str, default=None, choices=['add','concat'], help='Specifies whether time encoding is added to or concatenated with the input embeddings. Time encoding is not used if this option is left unspecified.')
 	parser.add_argument('--time_encoding_form', type=str, default='sinusoidal', choices=['sinusoidal','learnable','random','dummy'], help='Implementation of time encoding.')
-	parser.add_argument('--num_layers', type=int, default=1, help='# of layers in RNN.')
-	parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate in RNN.')
+	parser.add_argument('--num_layers', type=int, default=1, help='# of layers in SSM.')
+	parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate in SSM.')
 	parser.add_argument('--learnable_padding_token', action='store_true', help='Use a learnable embedding for the dummy token in the output phase. Otherwise, the dummy token is represented by the zero vector.')
 
 	parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate of Adam optimizer.')
@@ -89,11 +89,11 @@ if __name__=='__main__':
 	logger.info('Sequence length: {}'.format(args.seq_length))
 
 	model_configs = dict()
-	model_configs['rnn'] = dict(module_name='RNN',
+	model_configs['ssm'] = dict(module_name='SSM',
 								init_args=dict(
 									vocab_size=args.vocab_size,
 									hidden_size=args.hidden_size,
-									rnn_name=args.rnn_name,
+									# rnn_name=args.rnn_name,
 									embed_size=args.embed_size,
 									time_encoding=args.time_encoding,
 									time_encoding_form=args.time_encoding_form,

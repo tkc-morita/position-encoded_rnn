@@ -91,7 +91,7 @@ class VariableOnsetSequentialSampler(torch.utils.data.SequentialSampler, _Custom
 		return iter(range(start_ix+shift, len(self.data_source)))
 
 
-def get_data_loader(dataset, batch_size=1, shuffle=False, num_iterations=None, start_iter=0, num_workers=1, random_seed=111):
+def get_data_loader(dataset, batch_size=1, shuffle=False, num_iterations=None, start_iter=0, num_workers=1, collate_fn=None, random_seed=111):
 	if shuffle:
 		sampler = RandomSampler(dataset, replacement=False, seed=random_seed)
 		drop_last = True
@@ -105,5 +105,5 @@ def get_data_loader(dataset, batch_size=1, shuffle=False, num_iterations=None, s
 	if not num_iterations is None:
 		batch_sampler = IterationBasedBatchSampler(batch_sampler, num_iterations, start_iter=start_iter)
 
-	data_loader = torch.utils.data.DataLoader(dataset, num_workers=num_workers, batch_sampler=batch_sampler, collate_fn=dataset.collate_fn)
+	data_loader = torch.utils.data.DataLoader(dataset, num_workers=num_workers, batch_sampler=batch_sampler, collate_fn=getattr(dataset,'collate_fn',collate_fn))
 	return data_loader

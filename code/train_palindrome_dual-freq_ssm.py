@@ -1,57 +1,42 @@
 # coding: utf-8
 
-import os,argparse
+import os,argparse,importlib
 import torch
-import torch.nn.functional as F
-from torch.nn.utils import clip_grad_norm_
-from utils.training_template import Learner as _Learner
+from train_palindrome_ssm import Learner as _Learner
+train_palindrome = importlib.import_module('train_palindrome_dual-freq')
 from utils.logging import get_logger
-from data.dataset import RandomSequence
+from data.dataset import FreqentVSRare
 
-class Learner(_Learner):
-	def train_per_iteration(self, sequence, records, iteration):
-		self.optimizer.zero_grad()
-		sequence = sequence.to(self.device)
-
-		palindrome = sequence.flip(dims=(1,))
-		vocab_size = self.checkpoint['modules']['rnn']['init_args']['vocab_size']
-		dummy_input = torch.full_like(sequence, vocab_size) # NOTE: Mapped to a fixed zero vector or learnable filler.
-		input = torch.cat([sequence, dummy_input], dim=1)
-
-		logits = self.rnn(input)
-		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
-		loss = F.cross_entropy(logits.reshape(-1,vocab_size), palindrome.view(-1))
-		self.update_records(records, 'loss', loss.item())
-		accuracy = (logits.argmax(dim=-1)==palindrome).float().mean()
-		self.update_records(records, 'accuracy', accuracy.item())
-
-		loss.backward()
-		clip_grad_norm_(self.get_parameters(), 1.0)
-		self.optimizer.step()
-		self.scheduler.step(iteration)
-		return records
-
-	def log_training_stats(self, records, saving_interval):
-		self.logger.info('Cross entropy loss: {:0.6f}'.format(records['loss']/saving_interval))
-		self.logger.info('Accuracy: {:0.6f}'.format(records['accuracy']/saving_interval))
+class Learner(_Learner, train_palindrome.Learner):
+	def __call__(self, *args, **kwargs):
+		train_palindrome.Learner.__call__(self, *args, **kwargs)
 
 	def test(self, sequence):
-		sequence = sequence.to(self.device)
+		original_shape = sequence.size()
+		if len(original_shape)==2: # NOTE: No split b/w frequent vs. rare.
+			return super().test(sequence)
+		sequence = sequence.to(self.device).view(-1,original_shape[-1])
 
 		palindrome = sequence.flip(dims=(1,))
-		vocab_size = self.checkpoint['modules']['rnn']['init_args']['vocab_size']
+		vocab_size = self.checkpoint['modules']['ssm']['init_args']['vocab_size']
 		dummy_input = torch.full_like(sequence, vocab_size) # NOTE: Mapped to a fixed zero vector or learnable filler.
 		input = torch.cat([sequence, dummy_input], dim=1)
 
-		logits = self.rnn(input)
+		logits = self.ssm(input)
 		logits = logits[:,sequence.size(1):,:] # Strip-off the encoding phase.
 		
-		is_correct = logits.argmax(dim=-1)==palindrome
-		token_accuracy = is_correct.float().mean().item()
-		seq_accuracy = is_correct.all(dim=-1).float().mean().item()
-		self.logger.info('Test accuracy (token): {}'.format(token_accuracy))
-		self.logger.info('Test accuracy (sequence-wise full-match): {}'.format(seq_accuracy))
-
+		is_correct = (logits.argmax(dim=-1)==palindrome).view(*original_shape) # -> 2 x 2 x N x L x L
+		is_correct = is_correct.flip(dims=(-1,) # back to the input order
+								).diagonal(offset=0, dim1=-2, dim2=-1) # -> 2 x 2 x N x L
+		token_accuracy = is_correct.float().mean((-2)) # -> 2 x 2 x L
+		for target_type_ix in range(2):
+			for disturbant_type_ix in range(2):
+				for target_pos in range(token_accuracy.size(-1)):#range(2):
+					self.logger.info('Test accuracy of {target_type} tokens input at t={target_pos} surrounded by {disturbant_type} token (token): {accuracy}'.format(
+						target_type=['frequent','rare'][target_type_ix],
+						disturbant_type=['frequent','rare'][disturbant_type_ix],
+						target_pos=target_pos,
+						accuracy=token_accuracy[target_type_ix,disturbant_type_ix,target_pos].item()))
 
 if __name__=='__main__':
 	parser = argparse.ArgumentParser()
@@ -59,13 +44,16 @@ if __name__=='__main__':
 	parser.add_argument('seq_length', type=int, help='Sequence length.')
 	parser.add_argument('save_dir', type=str, help='Path to the directory where results are saved.')
 
-	parser.add_argument('--num_held_out', type=int, default=0, help='# of random sequences to be held out for testing.')
+	parser.add_argument('--num_held_out', type=int, default=0, help='TOTAL # of random sequences (frequent+rare) to be held out for testing.')
+	parser.add_argument('--mixed_held_out', action='store_true', help='Hold out sequences consisting of a mixture of frequent and rare tokens.')
+	parser.add_argument('--rarity', type=float, default=1/2, help='Probability of choosing the rare vocabulary.')
+	parser.add_argument('--num_frequent', type=int, default=None, help='# of frequent vocabulary items. Equals to vocab_size/2 by default.')
 
-	parser.add_argument('--rnn_name', type=str, required=True, choices=['RNN','GRU','LSTM'], help='Type of RNN.')
+	# parser.add_argument('--rnn_name', type=str, required=True, choices=['RNN','GRU','LSTM'], help='Type of RNN.')
 	parser.add_argument('--hidden_size', type=int, default=512, help='Dimensionality of hidden layer(s) in RNN.')
 	parser.add_argument('--embed_size', type=int, default=None, help='Dimensionality of input (& time) embeddings. Equals to hidden_size if not specified.')
 	parser.add_argument('--time_encoding', type=str, default=None, choices=['add','concat'], help='Specifies whether time encoding is added to or concatenated with the input embeddings. Time encoding is not used if this option is left unspecified.')
-	parser.add_argument('--time_encoding_form', type=str, default='sinusoidal', choices=['sinusoidal','learnable','random','dummy'], help='Implementation of time encoding.')
+	parser.add_argument('--time_encoding_form', type=str, default='sinusoidal', choices=['sinusoidal','learnable','random'], help='Implementation of time encoding.')
 	parser.add_argument('--num_layers', type=int, default=1, help='# of layers in RNN.')
 	parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate in RNN.')
 	parser.add_argument('--learnable_padding_token', action='store_true', help='Use a learnable embedding for the dummy token in the output phase. Otherwise, the dummy token is represented by the zero vector.')
@@ -84,16 +72,20 @@ if __name__=='__main__':
 	os.makedirs(args.save_dir, exist_ok=True)
 	logger = get_logger(args.save_dir)
 
-	logger.info('Learns palindrome.')
+	logger.info('Learns palindrome w/ frequent and rare vocabulary items.')
 	logger.info('Vocabulary size: {}'.format(args.vocab_size))
 	logger.info('Sequence length: {}'.format(args.seq_length))
+	logger.info('Rarity: {}'.format(args.rarity))
+	if not args.num_frequent is None:
+		logger.info('Vocabulary is split unevenly into two partitions of size {num_frequent} vs. {vocab_size}-{num_frequent}.'.format(
+					num_frequent=args.num_frequent,vocab_size=args.vocab_size))
 
 	model_configs = dict()
-	model_configs['rnn'] = dict(module_name='RNN',
+	model_configs['ssm'] = dict(module_name='SSM',
 								init_args=dict(
 									vocab_size=args.vocab_size,
 									hidden_size=args.hidden_size,
-									rnn_name=args.rnn_name,
+									# rnn_name=args.rnn_name,
 									embed_size=args.embed_size,
 									time_encoding=args.time_encoding,
 									time_encoding_form=args.time_encoding_form,
@@ -108,5 +100,8 @@ if __name__=='__main__':
 								warmup_prefix=True, lr_min=0.0)
 	learner = Learner(logger, args.save_dir, model_configs, optim_config, scheduler_config,
 						device=args.device, seed=args.seed)
-	dataset = RandomSequence(args.vocab_size, args.seq_length, args.num_held_out, dummy_datasize=max(512,args.batch_size))
+	dataset = FreqentVSRare(args.vocab_size, args.seq_length, args.num_held_out,
+								mixed_held_out=args.mixed_held_out,
+								rarity=args.rarity, num_frequent=args.num_frequent,
+								dummy_datasize=max(512,args.batch_size))
 	learner(dataset, args.num_iterations, args.batch_size, args.saving_interval, args.num_workers)
