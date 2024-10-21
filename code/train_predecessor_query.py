@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
 from utils.training_template import Learner as _Learner
 from utils.logging import get_logger
-from data.dataset import NoOverlap
+from data.dataset import NonRepeatingRandomSequence
 
 class Learner(_Learner):
 	def train_per_iteration(self, sequence, records, iteration):
@@ -106,5 +106,5 @@ if __name__=='__main__':
 								warmup_prefix=True, lr_min=0.0)
 	learner = Learner(logger, args.save_dir, model_configs, optim_config, scheduler_config,
 						device=args.device, seed=args.seed)
-	dataset = NoOverlap(args.vocab_size, args.seq_length, args.num_held_out, dummy_datasize=max(512,args.batch_size))
+	dataset = NonRepeatingRandomSequence(args.vocab_size, args.seq_length, args.num_held_out, dummy_datasize=max(512,args.batch_size))
 	learner(dataset, args.num_iterations, args.batch_size, args.saving_interval, args.num_workers)
