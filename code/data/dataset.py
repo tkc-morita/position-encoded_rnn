@@ -141,7 +141,7 @@ class NonRepeatingRandomSequence(_Base):
 		self.length = length
 		if num_held_out:
 			# NOTE: torch.prod more easily explodes than Python's builtin math.
-			possible_patterns = torch.e**torch.arange(1,vocab_size+1)[-self.length:].log().sum().item()
+			possible_patterns = torch.arange(1,vocab_size+1)[-self.length:].log().sum().item()
 			assert possible_patterns>torch.tensor(num_held_out).log().item(), 'Cannot hold out {num_held_out} sequences from {possible_patterns} patterns.'.format(num_held_out=num_held_out, possible_patterns=possible_patterns)
 			self.held_out = torch.randperm(self.vocab_size)[None,:self.length]
 			while self.held_out.size(0)<num_held_out:
