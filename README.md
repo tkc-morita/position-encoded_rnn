@@ -1,10 +1,15 @@
 # Experiments on Position Encoding Coupled with RNNs
 
-Source code used in the study entitled "Positional Encoding Helps Recurrent Neural Networks Handle a Large Vocabulary".
+Source code used in the study entitled ["Positional Encoding Helps Recurrent Neural Networks Handle a Large Vocabulary"](https://openreview.net/forum?id=PtnwXd13SF).
 
 ## Environment
 
-The conda environment used in the study can be recovered from [conda_env.yml](conda_env.yml).
+The conda environment used in the study can be recovered from:
+- [conda_env.yml](conda_env.yml)
+  - For everything but Appendix E.
+- [conda_env_LM.yml](conda_env_LM.yml)
+  - Extended to include torchtext for language modeling in Appendix E.
+  - This version also avoids the use of `defaults` channels.
 
 ## Description of the Execution Files
 
